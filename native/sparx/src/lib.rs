@@ -1,5 +1,6 @@
 #![deny(warnings)]
 
+use base64::Engine;
 use bytes::Bytes;
 use rustler::{Env, ResourceArc, Term};
 use tokio::sync::mpsc;
@@ -10,11 +11,13 @@ mod config;
 mod request;
 mod response;
 mod server;
+mod websocket;
 
 use config::ServerConfig;
 use request::{RequestHandle, ResponseMessage};
 use response::NifResult;
 use server::{QueuedRequest, ServerHandle};
+use websocket::{Frame, WebSocketHandle};
 
 fn load(_env: Env, load_info: Term) -> bool {
     // Configure tracing with SPARX_LOG env variable
@@ -211,6 +214,163 @@ async fn finish(request: ResourceArc<RequestHandle>) -> NifResult {
     } else {
         NifResult::Error("Response already sent".to_string())
     }
+}
+
+// ============================================================================
+// WebSocket NIFs
+// ============================================================================
+
+/// Upgrade an HTTP request to a WebSocket connection
+/// Returns {:ok, websocket_handle} or {:error, reason}
+#[rustler::nif]
+async fn upgrade_websocket(
+    request: ResourceArc<RequestHandle>,
+) -> Result<ResourceArc<WebSocketHandle>, String> {
+    use sha1::{Digest, Sha1};
+
+    // Take the upgrade future (can only be done once)
+    let upgrade_future = request
+        .take_upgrade()
+        .await
+        .ok_or_else(|| "Not an upgradeable request".to_string())?;
+
+    // Get the Sec-WebSocket-Key from request metadata
+    let ws_key = request
+        .metadata
+        .headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("sec-websocket-key"))
+        .map(|(_, v)| v.clone())
+        .ok_or_else(|| "Missing Sec-WebSocket-Key header".to_string())?;
+
+    // Compute the Sec-WebSocket-Accept value
+    const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+    let mut sha1 = Sha1::new();
+    sha1.update(ws_key.as_bytes());
+    sha1.update(WS_GUID.as_bytes());
+    let accept = base64::engine::general_purpose::STANDARD.encode(sha1.finalize());
+
+    // Send the 101 Switching Protocols response
+    if let Some(tx) = request.get_response_sender().await {
+        tx.send(ResponseMessage::Status(101))
+            .await
+            .map_err(|_| "Failed to send status")?;
+        tx.send(ResponseMessage::Header(
+            "Upgrade".to_string(),
+            "websocket".to_string(),
+        ))
+        .await
+        .map_err(|_| "Failed to send Upgrade header")?;
+        tx.send(ResponseMessage::Header(
+            "Connection".to_string(),
+            "Upgrade".to_string(),
+        ))
+        .await
+        .map_err(|_| "Failed to send Connection header")?;
+        tx.send(ResponseMessage::Header(
+            "Sec-WebSocket-Accept".to_string(),
+            accept,
+        ))
+        .await
+        .map_err(|_| "Failed to send Sec-WebSocket-Accept header")?;
+        tx.send(ResponseMessage::Finish)
+            .await
+            .map_err(|_| "Failed to finish response")?;
+    } else {
+        return Err("Response already sent".to_string());
+    }
+
+    // Wait for the upgrade to complete
+    let upgraded = upgrade_future
+        .await
+        .map_err(|e| format!("Upgrade failed: {}", e))?;
+
+    // Wrap in TokioIo
+    let io = hyper_util::rt::TokioIo::new(upgraded);
+
+    // Create WebSocket stream
+    let ws_stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
+        io,
+        tokio_tungstenite::tungstenite::protocol::Role::Server,
+        None,
+    )
+    .await;
+
+    // Create and return WebSocketHandle
+    let ws_handle = WebSocketHandle::new(ws_stream);
+    Ok(ResourceArc::new(ws_handle))
+}
+
+/// Send a text frame over the WebSocket
+#[rustler::nif]
+async fn ws_send_text(ws: ResourceArc<WebSocketHandle>, text: String) -> NifResult {
+    ws.send_frame(Frame::Text(text))
+        .await
+        .map(|_| NifResult::Ok)
+        .unwrap_or_else(NifResult::Error)
+}
+
+/// Send a binary frame over the WebSocket
+#[rustler::nif]
+fn ws_send_binary(ws: ResourceArc<WebSocketHandle>, data: rustler::Binary) -> NifResult {
+    let bytes = data.as_slice().to_vec();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+
+    rustler::spawn(async move {
+        let result = ws
+            .send_frame(Frame::Binary(bytes))
+            .await
+            .map(|_| NifResult::Ok)
+            .unwrap_or_else(NifResult::Error);
+        let _ = tx.send(result);
+    });
+
+    match rx.blocking_recv() {
+        Ok(result) => result,
+        Err(_) => NifResult::Error("Internal error".to_string()),
+    }
+}
+
+/// Receive a frame from the WebSocket
+/// Returns {:text, data} | {:binary, data} | {:ping, data} | {:pong, data} | :close | :closed
+#[rustler::nif]
+fn ws_recv(
+    env: rustler::Env,
+    ws: ResourceArc<WebSocketHandle>,
+) -> Result<(rustler::Atom, rustler::Binary), rustler::Atom> {
+    // Use oneshot channel to wait for async result
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+
+    rustler::spawn(async move {
+        let result = match ws.recv_frame().await {
+            Some(Frame::Text(text)) => Ok((atoms::text(), text.into_bytes())),
+            Some(Frame::Binary(data)) => Ok((atoms::binary(), data)),
+            Some(Frame::Ping(data)) => Ok((atoms::ping(), data)),
+            Some(Frame::Pong(data)) => Ok((atoms::pong(), data)),
+            Some(Frame::Close) => Err(atoms::close()),
+            None => Err(atoms::closed()),
+        };
+        let _ = result_tx.send(result);
+    });
+
+    match result_rx.blocking_recv() {
+        Ok(Ok((frame_type, data))) => {
+            let mut binary = rustler::OwnedBinary::new(data.len()).unwrap();
+            binary.as_mut_slice().copy_from_slice(&data);
+            Ok((frame_type, binary.release(env)))
+        }
+        Ok(Err(atom)) => Err(atom),
+        Err(_) => Err(atoms::error()),
+    }
+}
+
+/// Close the WebSocket connection
+#[rustler::nif]
+async fn ws_close(ws: ResourceArc<WebSocketHandle>) -> NifResult {
+    ws.send_frame(Frame::Close)
+        .await
+        .map(|_| NifResult::Ok)
+        .unwrap_or_else(NifResult::Error)
 }
 
 // ============================================================================

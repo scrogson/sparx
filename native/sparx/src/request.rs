@@ -1,5 +1,6 @@
 use bytes::Bytes;
 use hyper::http::{HeaderMap, Method, Uri, Version};
+use hyper::upgrade::OnUpgrade;
 use rustler::NifStruct;
 use tokio::sync::{mpsc, Mutex};
 
@@ -24,6 +25,8 @@ pub struct RequestHandle {
     pub body_rx: Mutex<Option<mpsc::Receiver<Result<Bytes, String>>>>,
     /// Sender for response parts
     pub response_tx: Mutex<Option<ResponseSender>>,
+    /// Optional upgrade future for WebSocket upgrades
+    pub upgrade: Mutex<Option<OnUpgrade>>,
 }
 
 /// Types of response messages
@@ -41,11 +44,13 @@ impl RequestHandle {
         metadata: RequestMetadata,
         body_rx: mpsc::Receiver<Result<Bytes, String>>,
         response_tx: ResponseSender,
+        upgrade: Option<OnUpgrade>,
     ) -> Self {
         Self {
             metadata,
             body_rx: Mutex::new(Some(body_rx)),
             response_tx: Mutex::new(Some(response_tx)),
+            upgrade: Mutex::new(upgrade),
         }
     }
 
@@ -74,6 +79,12 @@ impl RequestHandle {
     pub async fn get_response_sender(&self) -> Option<ResponseSender> {
         let guard = self.response_tx.lock().await;
         guard.as_ref().cloned()
+    }
+
+    /// Take the upgrade future (can only be done once)
+    pub async fn take_upgrade(&self) -> Option<OnUpgrade> {
+        let mut guard = self.upgrade.lock().await;
+        guard.take()
     }
 }
 

@@ -687,12 +687,14 @@ dependencies = [
 name = "sparx"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "bytes",
  "futures",
  "http-body-util",
  "hyper",
  "hyper-util",
  "rustler",
+ "sha1",
  "tokio",
  "tokio-tungstenite",
  "tracing",

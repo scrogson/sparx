@@ -6,13 +6,20 @@ A high-performance HTTP server for Elixir powered by Rust NIFs and Hyper.
 
 ## Overview
 
-Sparx provides a low-level, high-performance HTTP server for Elixir using Rust NIFs and the Hyper HTTP library. It features:
+Sparx provides a low-level, high-performance HTTP server for Elixir using Rust NIFs and the Hyper HTTP library.
 
-- **HTTP/1.1 and HTTP/2** support
-- **WebSocket** connections
-- **Demand-driven streaming** for backpressure control
-- **GenStage integration** for request dispatch
-- **Async I/O** with Tokio and async-nifs
+### Implemented Features ✅
+
+- **HTTP/1.1 and HTTP/2** - Automatic protocol detection
+- **Request/Response Streaming** - Demand-driven with backpressure control
+- **Async I/O** - Powered by Tokio and async-nifs
+- **Zero-copy** - Efficient binary handling between Rust and Elixir
+
+### Planned Features 🚧
+
+- **WebSocket** connections (in progress)
+- **TLS/SSL** support via rustls
+- **HTTP/3** via quinn + h3
 
 ## Quick Start
 

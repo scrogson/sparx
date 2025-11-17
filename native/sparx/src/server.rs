@@ -91,9 +91,11 @@ pub async fn start_server(
                 async move { handle_request(req, request_tx).await }
             });
 
-            if let Err(e) = hyper::server::conn::http1::Builder::new()
-                .serve_connection(io, service)
-                .await
+            // Use auto builder to support both HTTP/1.1 and HTTP/2
+            if let Err(e) =
+                hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
+                    .serve_connection(io, service)
+                    .await
             {
                 error!("Error serving connection from {}: {}", remote_addr, e);
             }
@@ -106,18 +108,45 @@ async fn handle_request(
     req: Request<Incoming>,
     request_tx: mpsc::Sender<QueuedRequest>,
 ) -> Result<Response<BoxBody>, Infallible> {
-    // Extract request parts
-    let (parts, body) = req.into_parts();
+    // Check if this is a WebSocket upgrade request
+    let is_upgrade = req
+        .headers()
+        .get(hyper::header::UPGRADE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false);
 
-    // Extract metadata
-    let metadata = extract_metadata(&parts.method, &parts.uri, parts.version, &parts.headers);
+    // Clone metadata before potentially consuming the request
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    let version = req.version();
+    let headers = req.headers().clone();
+
+    // Extract metadata from cloned values
+    let metadata = extract_metadata(&method, &uri, version, &headers);
+
+    //  Extract upgrade future and body
+    let (upgrade, body) = if is_upgrade {
+        // For upgrades, get the OnUpgrade future (this consumes the request)
+        let upgrade_future = hyper::upgrade::on(req);
+        // WebSocket upgrades don't have a request body, use empty
+        let empty = http_body_util::Empty::<Bytes>::new()
+            .map_err(|never: std::convert::Infallible| match never {})
+            .boxed();
+        (Some(upgrade_future), empty)
+    } else {
+        // Normal flow - extract the body and box it
+        let (_, incoming_body) = req.into_parts();
+        let boxed_body = incoming_body.boxed();
+        (None, boxed_body)
+    };
 
     // Create channels for body streaming and response
     let (body_tx, body_rx) = mpsc::channel::<Result<Bytes, String>>(16);
     let (response_tx, response_rx) = mpsc::channel::<ResponseMessage>(16);
 
-    // Create request handle
-    let request_handle = RequestHandle::new(metadata, body_rx, response_tx.clone());
+    // Create request handle with optional upgrade
+    let request_handle = RequestHandle::new(metadata, body_rx, response_tx.clone(), upgrade);
 
     // Spawn task to stream request body into channel
     tokio::spawn(async move {

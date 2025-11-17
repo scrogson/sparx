@@ -18,5 +18,12 @@ defmodule Sparx.Native do
   def write_chunk(_request_handle, _data), do: err()
   def finish(_request_handle), do: err()
 
+  # WebSocket
+  def upgrade_websocket(_request_handle), do: err()
+  def ws_send_text(_ws_handle, _text), do: err()
+  def ws_send_binary(_ws_handle, _data), do: err()
+  def ws_recv(_ws_handle), do: err()
+  def ws_close(_ws_handle), do: err()
+
   defp err, do: :erlang.nif_error(:nif_not_loaded)
 end

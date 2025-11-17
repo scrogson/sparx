@@ -35,4 +35,5 @@ rustler::atoms! {
     ping,
     pong,
     close,
+    closed,
 }
