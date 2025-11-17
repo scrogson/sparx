@@ -18,7 +18,5 @@ defmodule Sparx.Native do
   def write_chunk(_request_handle, _data), do: err()
   def finish(_request_handle), do: err()
 
-  defp err do
-    :erlang.nif_error(:nif_not_loaded)
-  end
+  defp err, do: :erlang.nif_error(:nif_not_loaded)
 end

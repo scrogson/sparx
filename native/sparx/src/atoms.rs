@@ -2,6 +2,16 @@ rustler::atoms! {
     ok,
     error,
     eof,
+    nil,
+
+    // Error reasons
+    not_found,
+    timeout,
+    invalid_request,
+    server_error,
+    already_started,
+    not_started,
+    connection_closed,
 
     // HTTP methods
     get,
@@ -11,6 +21,8 @@ rustler::atoms! {
     delete,
     head,
     options,
+    connect,
+    trace,
 
     // HTTP versions
     http_1_0,
