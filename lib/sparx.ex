@@ -47,7 +47,7 @@ defmodule Sparx do
   ## Options
 
     * `:handler` - Function that handles requests (required)
-    * `:port` - Port to listen on (default: 4000)
+    * `:port` - Port to listen on (default: 7779)
     * `:host` - Host to bind to (default: "127.0.0.1")
     * `:name` - Name to register the server under (optional)
     * `:max_connections` - Maximum concurrent connections (default: 100,000)
@@ -58,7 +58,7 @@ defmodule Sparx do
 
       {:ok, server} = Sparx.start_link(
         handler: &MyApp.handle_request/1,
-        port: 4000
+        port: 7779
       )
 
   """
@@ -89,7 +89,7 @@ defmodule Sparx do
 
     config = %Config{
       host: Keyword.get(opts, :host, "127.0.0.1"),
-      port: Keyword.get(opts, :port, 4000),
+      port: Keyword.get(opts, :port, 7779),
       max_connections: Keyword.get(opts, :max_connections, 100_000),
       request_timeout_ms: Keyword.get(opts, :request_timeout_ms, 30_000),
       keep_alive_timeout_ms: Keyword.get(opts, :keep_alive_timeout_ms, 60_000)
@@ -98,9 +98,10 @@ defmodule Sparx do
     case Native.server_start(config) do
       {:ok, server_ref} ->
         # Spawn worker process to pull and handle requests
-        worker_pid = spawn_link(fn ->
-          request_loop(server_ref, handler)
-        end)
+        worker_pid =
+          spawn_link(fn ->
+            request_loop(server_ref, handler)
+          end)
 
         {:ok, %{server_ref: server_ref, worker: worker_pid, handler: handler}}
 

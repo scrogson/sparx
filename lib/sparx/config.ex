@@ -5,7 +5,7 @@ defmodule Sparx.Config do
   ## Fields
 
     * `:host` - Host to bind to (e.g., "127.0.0.1", "0.0.0.0")
-    * `:port` - Port to listen on (default: 4000)
+    * `:port` - Port to listen on (default: 7779)
     * `:max_connections` - Maximum number of concurrent connections (default: 100,000)
     * `:request_timeout_ms` - Request timeout in milliseconds (default: 30,000)
     * `:keep_alive_timeout_ms` - Keep-alive timeout in milliseconds (default: 60,000)
@@ -13,7 +13,7 @@ defmodule Sparx.Config do
   ## Examples
 
       iex> config = %Sparx.Config{}
-      %Sparx.Config{host: "127.0.0.1", port: 4000, ...}
+      %Sparx.Config{host: "127.0.0.1", port: 7779, ...}
 
       iex> config = %Sparx.Config{port: 8080}
       %Sparx.Config{host: "127.0.0.1", port: 8080, ...}
@@ -29,7 +29,7 @@ defmodule Sparx.Config do
         }
 
   defstruct host: "127.0.0.1",
-            port: 4000,
+            port: 7779,
             max_connections: 100_000,
             request_timeout_ms: 30_000,
             keep_alive_timeout_ms: 60_000

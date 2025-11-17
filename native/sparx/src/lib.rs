@@ -1,9 +1,9 @@
 #![deny(warnings)]
 
-use rustler::{Env, ResourceArc, Term};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use bytes::Bytes;
+use rustler::{Env, ResourceArc, Term};
 use tokio::sync::mpsc;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod atoms;
 mod config;
@@ -79,7 +79,9 @@ fn server_stop(server: ResourceArc<ServerHandle>) -> rustler::Atom {
 /// Receive a request from the server (demand-driven, async)
 /// Returns {:ok, request_handle} or {:error, reason}
 #[rustler::nif]
-async fn receive_request(server: ResourceArc<ServerHandle>) -> Result<ResourceArc<RequestHandle>, rustler::Atom> {
+async fn receive_request(
+    server: ResourceArc<ServerHandle>,
+) -> Result<ResourceArc<RequestHandle>, rustler::Atom> {
     match server.receive_request().await {
         Some(handle) => {
             let handle_arc = ResourceArc::new(handle);
@@ -96,21 +98,34 @@ async fn receive_request(server: ResourceArc<ServerHandle>) -> Result<ResourceAr
 // Request Streaming NIFs
 // ============================================================================
 
-/// Read a chunk from the request body (async)
-/// Returns binary | :error
+/// Read a chunk from the request body
+/// Returns {:ok, binary} | {:error, reason}
 #[rustler::nif]
-async fn read_chunk(request: ResourceArc<RequestHandle>) -> Result<Vec<u8>, rustler::Atom> {
-    match request.read_body_chunk().await {
-        Ok(Some(chunk)) => {
-            Ok(chunk.to_vec())
+fn read_chunk(
+    env: rustler::Env,
+    request: ResourceArc<RequestHandle>,
+) -> Result<rustler::Binary, rustler::Atom> {
+    // Use oneshot channel to wait for async result
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+
+    rustler::spawn(async move {
+        let result = match request.read_body_chunk().await {
+            Ok(Some(chunk)) => Ok(chunk.to_vec()),
+            Ok(None) => Ok(Vec::new()), // Empty vec signals EOF
+            Err(_e) => Err(atoms::error()),
+        };
+        let _ = result_tx.send(result);
+    });
+
+    match result_rx.blocking_recv() {
+        Ok(Ok(vec)) => {
+            // Convert Vec<u8> to Binary
+            let mut binary = rustler::OwnedBinary::new(vec.len()).unwrap();
+            binary.as_mut_slice().copy_from_slice(&vec);
+            Ok(binary.release(env))
         }
-        Ok(None) => {
-            // Return empty vec to signal EOF
-            Ok(Vec::new())
-        }
-        Err(_e) => {
-            Err(atoms::error())
-        }
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err(atoms::error()),
     }
 }
 
@@ -135,7 +150,11 @@ async fn send_status(request: ResourceArc<RequestHandle>, status: u16) -> NifRes
 /// Send response header
 /// Returns :ok | {:error, reason}
 #[rustler::nif]
-async fn send_header(request: ResourceArc<RequestHandle>, name: String, value: String) -> NifResult {
+async fn send_header(
+    request: ResourceArc<RequestHandle>,
+    name: String,
+    value: String,
+) -> NifResult {
     if let Some(tx) = request.get_response_sender().await {
         match tx.send(ResponseMessage::Header(name, value)).await {
             Ok(_) => NifResult::Ok,

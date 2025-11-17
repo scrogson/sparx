@@ -121,29 +121,30 @@ defmodule Sparx.Request do
     max_size = Keyword.get(opts, :max_size, 10 * 1024 * 1024)
     timeout = Keyword.get(opts, :timeout, 30_000)
 
-    try do
-      chunks =
-        body_stream(request_handle, timeout: timeout)
-        |> Enum.reduce_while({[], 0}, fn chunk, {acc, size} ->
-          new_size = size + byte_size(chunk)
+    chunks =
+      request_handle
+      |> body_stream(timeout: timeout)
+      |> Enum.reduce_while({[], 0}, fn chunk, {acc, size} ->
+        new_size = size + byte_size(chunk)
 
-          if new_size > max_size do
-            {:halt, {:error, :too_large}}
-          else
-            {:cont, {[chunk | acc], new_size}}
-          end
-        end)
+        if new_size > max_size do
+          {:halt, {:error, :too_large}}
+        else
+          {:cont, {[chunk | acc], new_size}}
+        end
+      end)
 
-      case chunks do
-        {:error, reason} ->
-          {:error, reason}
+    case chunks do
+      {:error, reason} ->
+        {:error, reason}
 
-        {chunk_list, _size} ->
-          body = chunk_list |> Enum.reverse() |> IO.iodata_to_binary()
-          {:ok, body}
-      end
-    rescue
-      e -> {:error, Exception.message(e)}
+      {chunk_list, _size} ->
+        body =
+          chunk_list
+          |> Enum.reverse()
+          |> IO.iodata_to_binary()
+
+        {:ok, body}
     end
   end
 end

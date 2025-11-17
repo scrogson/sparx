@@ -1,11 +1,11 @@
 use bytes::Bytes;
+use futures::stream;
 use http_body_util::{BodyExt, StreamBody};
 use hyper::body::Frame;
 use hyper::{Response, StatusCode};
+use rustler::{Encoder, Env, Term};
 use std::convert::Infallible;
 use tokio::sync::mpsc;
-use futures::stream;
-use rustler::{Encoder, Env, Term};
 
 type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
 
@@ -73,7 +73,11 @@ impl ResponseBuilder {
                 .map_err(|never| match never {})
                 .boxed()
         } else {
-            let stream = stream::iter(self.body_chunks.into_iter().map(|chunk| Ok::<_, Infallible>(Frame::data(chunk))));
+            let stream = stream::iter(
+                self.body_chunks
+                    .into_iter()
+                    .map(|chunk| Ok::<_, Infallible>(Frame::data(chunk))),
+            );
             StreamBody::new(stream).boxed()
         };
 

@@ -21,7 +21,8 @@ defmodule Sparx.Response do
 
   """
   @spec send_status(request_handle(), 100..599) :: :ok | {:error, term()}
-  def send_status(request_handle, status) when is_integer(status) and status >= 100 and status <= 599 do
+  def send_status(request_handle, status)
+      when is_integer(status) and status >= 100 and status <= 599 do
     Native.send_status(request_handle, status)
   end
 

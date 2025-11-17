@@ -77,7 +77,6 @@ impl RequestHandle {
     }
 }
 
-
 /// Helper to convert hyper::Version to string
 pub fn version_to_string(version: Version) -> String {
     match version {
@@ -91,7 +90,12 @@ pub fn version_to_string(version: Version) -> String {
 }
 
 /// Helper to extract request metadata from hyper request parts
-pub fn extract_metadata(method: &Method, uri: &Uri, version: Version, headers: &HeaderMap) -> RequestMetadata {
+pub fn extract_metadata(
+    method: &Method,
+    uri: &Uri,
+    version: Version,
+    headers: &HeaderMap,
+) -> RequestMetadata {
     let path = uri.path().to_string();
     let query = uri.query().map(|q| q.to_string());
 

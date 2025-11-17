@@ -2,10 +2,10 @@
 #
 # Run with: mix run examples/hello_world.exs
 #
-# Then visit http://localhost:4500 in your browser or use curl:
-#   curl http://localhost:4500
-#   curl http://localhost:4500/hello
-#   curl http://localhost:4500/json
+# Then visit http://localhost:7779 in your browser or use curl:
+#   curl http://localhost:7779
+#   curl http://localhost:7779/hello
+#   curl http://localhost:7779/json
 require Logger
 
 defmodule HelloWorld do
@@ -26,16 +26,16 @@ defmodule HelloWorld do
 end
 
 # Start the server
-Logger.info("Starting Sparx server on http://localhost:4500")
+Logger.info("Starting Sparx server on http://localhost:7779")
 
 {:ok, _server} =
   Sparx.start_link(
     handler: &HelloWorld.handle_request/1,
-    port: 4500
+    port: 7779
   )
 
 Logger.info("Server started! Press Ctrl+C to stop")
-Logger.info("Try: curl http://localhost:4500")
+Logger.info("Try: curl http://localhost:7779")
 
 # Keep the process alive
 Process.sleep(:infinity)

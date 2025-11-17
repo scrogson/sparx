@@ -29,10 +29,7 @@ pub struct ServerHandle {
 }
 
 impl ServerHandle {
-    pub fn new(
-        request_rx: mpsc::Receiver<QueuedRequest>,
-        shutdown_tx: mpsc::Sender<()>,
-    ) -> Self {
+    pub fn new(request_rx: mpsc::Receiver<QueuedRequest>, shutdown_tx: mpsc::Sender<()>) -> Self {
         Self {
             request_queue: Mutex::new(request_rx),
             shutdown_tx: Mutex::new(Some(shutdown_tx)),
@@ -91,9 +88,7 @@ pub async fn start_server(
         tokio::spawn(async move {
             let service = service_fn(move |req: Request<Incoming>| {
                 let request_tx = request_tx.clone();
-                async move {
-                    handle_request(req, request_tx).await
-                }
+                async move { handle_request(req, request_tx).await }
             });
 
             if let Err(e) = hyper::server::conn::http1::Builder::new()
